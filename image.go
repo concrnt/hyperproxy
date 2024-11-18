@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,12 +18,12 @@ import (
 	"strings"
 
 	_ "github.com/jdeng/goheif"
-	_ "github.com/kettek/apng"
+	"github.com/kettek/apng"
 	_ "golang.org/x/image/bmp"
 	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
 	"image"
-	_ "image/gif"
+	"image/gif"
 	_ "image/jpeg"
 
 	"github.com/chai2010/webp"
@@ -159,32 +158,9 @@ func ImageHandler(c echo.Context) error {
 	requestCacheKey := hex.EncodeToString(requestCacheKeyBytes[:])
 	requestCachePath := filepath.Join(CachePath, requestCacheKey)
 
-	var reader io.Reader
-	var contentType string
-
 	// Check if the original image is already cached
 	if _, err := os.Stat(requestCachePath); err == nil {
-
 		fmt.Println("Cache hit: ", remoteURL)
-
-		cache, err := os.Open(requestCachePath)
-		if err != nil {
-			err := errors.Wrap(err, "Failed to open original cache")
-			span.RecordError(err)
-			return c.String(500, err.Error())
-		}
-
-		req := &http.Request{}
-		resp, err := http.ReadResponse(bufio.NewReader(cache), req)
-		if err != nil {
-			err := errors.Wrap(err, "Failed to read response")
-			span.RecordError(err)
-			return c.String(500, err.Error())
-		}
-
-		reader = resp.Body
-		contentType = resp.Header.Get("Content-Type")
-
 	} else {
 
 		fmt.Println("Cache miss: ", remoteURL)
@@ -249,25 +225,15 @@ func ImageHandler(c echo.Context) error {
 			return c.String(500, err.Error())
 		}
 		defer resp.Body.Close()
-
-		buf, err := io.ReadAll(resp.Body)
-		if err != nil {
-			err := errors.Wrap(err, "Failed to read response")
-			span.RecordError(err)
-			return c.String(500, err.Error())
-		}
-
-		resp.Body = io.NopCloser(bytes.NewReader(buf))
-		reader = bytes.NewReader(buf)
-
-		contentType = resp.Header.Get("Content-Type")
-
 		fetchSpan.End()
 
 		if resp.StatusCode != 200 {
 			err := errors.New("fetch image response code is not 200")
 			span.SetAttributes(attribute.Int("statusCode", resp.StatusCode))
-			span.SetAttributes(attribute.String("body", string(buf)))
+
+			body, _ := io.ReadAll(resp.Body)
+			span.SetAttributes(attribute.String("body", string(body)))
+
 			span.RecordError(err)
 			return c.String(resp.StatusCode, err.Error())
 		}
@@ -287,31 +253,76 @@ func ImageHandler(c echo.Context) error {
 			return c.String(500, err.Error())
 		}
 
-		b, err := httputil.DumpResponse(resp, true)
+		cacheFile, err := os.Create(requestCachePath)
 		if err != nil {
-			err := errors.Wrap(err, "Failed to dump response")
+			err := errors.Wrap(err, "Failed to create cache file")
 			span.RecordError(err)
 			return c.String(500, err.Error())
 		}
+		defer cacheFile.Close()
 
-		err = os.WriteFile(requestCachePath, b, 0644)
-		if err != nil {
-			err := errors.Wrap(err, "Failed to write cache file")
-			span.RecordError(err)
-			return c.String(500, err.Error())
-		}
+		resp.Write(cacheFile)
 	}
+
+	cache, err := os.Open(requestCachePath)
+	if err != nil {
+		err := errors.Wrap(err, "Failed to open original cache")
+		span.RecordError(err)
+		return c.String(500, err.Error())
+	}
+
+	reader := bufio.NewReader(cache)
+
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		err := errors.Wrap(err, "Failed to read response")
+		span.RecordError(err)
+		return c.String(500, err.Error())
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.Copy(io.Discard, resp.Body)
+	if err != nil {
+		err := errors.Wrap(err, "Failed to read body")
+		span.RecordError(err)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+
+	cacheStat, err := cache.Stat()
+	if err != nil {
+		err := errors.Wrap(err, "Failed to stat cache")
+		span.RecordError(err)
+		return c.String(500, err.Error())
+	}
+
+	bodyStartOffset := cacheStat.Size() - bodyBytes
 
 	// load image
 	_, loadSpan := tracer.Start(ctx, "LoadImage")
-	buf := new(bytes.Buffer)
-	tee := io.TeeReader(reader, buf)
-	img, format, err := image.Decode(tee)
+
+	cache.Seek(bodyStartOffset, io.SeekStart)
+	img, format, err := image.Decode(cache)
 
 	// check if the image is animated
 	isAnimated := false
 	if err == nil {
-		_, isAnimated = img.(*image.Paletted)
+		switch format {
+		case "gif":
+			cache.Seek(bodyStartOffset, io.SeekStart)
+
+			gifImg, err := gif.DecodeAll(cache)
+			if err == nil && len(gifImg.Image) > 1 {
+				isAnimated = true
+			}
+		case "apng":
+			cache.Seek(bodyStartOffset, io.SeekStart)
+
+			apngImg, err := apng.DecodeAll(cache)
+			if err == nil && len(apngImg.Frames) > 1 {
+				isAnimated = true
+			}
+		}
 	}
 
 	if err != nil || isAnimated {
@@ -319,13 +330,15 @@ func ImageHandler(c echo.Context) error {
 			fmt.Printf("Fallback to original image: %s (%s) %s\n", remoteURL, format, err)
 		}
 		c.Response().Header().Set("Cache-Control", "public, max-age=86400, s-maxage=86400, immutable")
-		return c.Stream(200, contentType, io.MultiReader(buf, reader))
+		cache.Seek(bodyStartOffset, io.SeekStart)
+		return c.Stream(200, contentType, io.MultiReader(cache, reader))
 	}
 	loadSpan.End()
 
 	orientation := 1
 	if format == "jpeg" {
-		exifData, err := exif.Decode(buf)
+		cache.Seek(bodyStartOffset, io.SeekStart)
+		exifData, err := exif.Decode(cache)
 		if err == nil {
 			exifOrient, err := exifData.Get(exif.Orientation)
 			if err == nil {
