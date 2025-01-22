@@ -80,7 +80,17 @@ func main() {
 
 	init_resize(512 * 1024 * 1024)
 
-	e.GET("/image/*", ImageHandler)
+	sem := make(chan struct{}, 1)
+
+	e.GET("/image/*", func(c echo.Context) error {
+		sem <- struct{}{}
+		defer func() {
+			<-sem
+		}()
+
+		return ImageHandler(c)
+	})
+
 	e.GET("/summary", SummaryHandler)
 
 	var currentCacheSizeMetrics = prometheus.NewGauge(prometheus.GaugeOpts{
