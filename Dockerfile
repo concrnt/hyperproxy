@@ -16,5 +16,6 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=corebuilder /work/hyperproxy /usr/local/bin
+COPY ./config.yaml.sample /etc/hyperproxy/config.yaml
 
 CMD ["hyperproxy"]

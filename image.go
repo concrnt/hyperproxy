@@ -205,15 +205,40 @@ func ImageHandler(c echo.Context) error {
 			return c.String(400, err.Error())
 		}
 
-		for _, denyIP := range denyIps {
-			_, ipnet, err := net.ParseCIDR(denyIP)
-			if err != nil {
-				fmt.Println("Error parsing CIDR: ", err)
-				span.RecordError(err)
+		whiteListMap := make(map[string]bool)
+		var whiteListCIDRs []*net.IPNet
+		for _, entry := range IpsWhiteList {
+			if _, ipNet, err := net.ParseCIDR(entry); err == nil {
+				whiteListCIDRs = append(whiteListCIDRs, ipNet)
+			} else {
+				whiteListMap[entry] = true
+			}
+		}
+
+		for _, targetIP := range targetIPs {
+
+			if whiteListMap[targetIP.String()] {
+				continue
+			}
+			inWhiteList := false
+			for _, cidr := range whiteListCIDRs {
+				if cidr.Contains(targetIP) {
+					inWhiteList = true
+					break
+				}
+			}
+			if inWhiteList {
 				continue
 			}
 
-			for _, targetIP := range targetIPs {
+			for _, denyIP := range denyIps {
+				_, ipnet, err := net.ParseCIDR(denyIP)
+				if err != nil {
+					fmt.Println("Error parsing CIDR: ", err)
+					span.RecordError(err)
+					continue
+				}
+
 				if ipnet.Contains(targetIP) {
 					err := errors.New("IP is in deny list")
 					span.RecordError(err)
