@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"gopkg.in/yaml.v3"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"time"
@@ -30,6 +32,27 @@ var denyIps = []string{
 	"fc00::/7",
 }
 
+var IpsWhiteList []string
+
+type Config struct {
+	Whitelist []string `yaml:"whitelist"`
+}
+
+func LoadWhitelist(filePath string) ([]string, error) {
+	data, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var config Config
+	err = yaml.Unmarshal(data, &config)
+	if err != nil {
+		return nil, err
+	}
+
+	return config.Whitelist, nil
+}
+
 var (
 	mc     *memcache.Client
 	client = &http.Client{
@@ -43,6 +66,16 @@ const (
 )
 
 func main() {
+
+	whitelistFile := "/etc/hyperproxy/config.yaml"
+	loadedWhitelist, err := LoadWhitelist(whitelistFile)
+	if err != nil {
+		fmt.Println("Error loading whitelist:", err)
+		os.Exit(1)
+	}
+
+	IpsWhiteList = loadedWhitelist
+	fmt.Println("Loaded whitelist:", IpsWhiteList)
 
 	mc = memcache.New(os.Getenv("MEMCACHED_HOST"))
 	defer mc.Close()
