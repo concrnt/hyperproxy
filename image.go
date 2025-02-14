@@ -19,6 +19,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/attribute"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -27,6 +28,7 @@ const (
 )
 
 var reCleanedURL = regexp.MustCompile(`^(https?):/+([^/])`)
+var group singleflight.Group
 
 func CleanDiskCache() int64 {
 
@@ -178,112 +180,126 @@ func ImageHandler(c echo.Context) error {
 	if !data_cached || !header_cached {
 		fmt.Println("  Fetch Original Image")
 
-		parsedUrl, err := url.Parse(remoteURL)
-		if err != nil {
-			err := errors.Wrap(err, "Failed to parse URL")
-			span.RecordError(err)
-			return c.String(400, err.Error())
-		}
+		_, err, shared := group.Do(originalCacheKey, func() (interface{}, error) {
 
-		if parsedUrl.Scheme != "http" && parsedUrl.Scheme != "https" {
-			err := errors.New("Invalid URL scheme")
-			span.RecordError(err)
-			return c.String(400, err.Error())
-		}
-
-		targetHost := parsedUrl.Host
-		splitHost, _, err := net.SplitHostPort(parsedUrl.Host)
-		if err == nil {
-			targetHost = splitHost
-		}
-
-		targetIPs, err := net.LookupIP(targetHost)
-		if err != nil {
-			err := errors.Wrap(err, "Failed to lookup IP")
-			span.SetAttributes(attribute.String("host", parsedUrl.Host))
-			span.RecordError(err)
-			return c.String(400, err.Error())
-		}
-
-		for _, denyIP := range denyIps {
-			_, ipnet, err := net.ParseCIDR(denyIP)
+			parsedUrl, err := url.Parse(remoteURL)
 			if err != nil {
-				fmt.Println("Error parsing CIDR: ", err)
+				err := errors.Wrap(err, "Failed to parse URL")
 				span.RecordError(err)
-				continue
+				return nil, c.String(400, err.Error())
 			}
 
-			for _, targetIP := range targetIPs {
-				if ipnet.Contains(targetIP) {
-					err := errors.New("IP is in deny list")
+			if parsedUrl.Scheme != "http" && parsedUrl.Scheme != "https" {
+				err := errors.New("Invalid URL scheme")
+				span.RecordError(err)
+				return nil, c.String(400, err.Error())
+			}
+
+			targetHost := parsedUrl.Host
+			splitHost, _, err := net.SplitHostPort(parsedUrl.Host)
+			if err == nil {
+				targetHost = splitHost
+			}
+
+			targetIPs, err := net.LookupIP(targetHost)
+			if err != nil {
+				err := errors.Wrap(err, "Failed to lookup IP")
+				span.SetAttributes(attribute.String("host", parsedUrl.Host))
+				span.RecordError(err)
+				return nil, c.String(400, err.Error())
+			}
+
+			for _, denyIP := range denyIps {
+				_, ipnet, err := net.ParseCIDR(denyIP)
+				if err != nil {
+					fmt.Println("Error parsing CIDR: ", err)
 					span.RecordError(err)
-					return c.String(403, err.Error())
+					continue
+				}
+
+				for _, targetIP := range targetIPs {
+					if ipnet.Contains(targetIP) {
+						err := errors.New("IP is in deny list")
+						span.RecordError(err)
+						return nil, c.String(403, err.Error())
+					}
 				}
 			}
-		}
 
-		_, fetchSpan := tracer.Start(ctx, "FetchImage")
+			_, fetchSpan := tracer.Start(ctx, "FetchImage")
 
-		req, err := http.NewRequest("GET", remoteURL, nil)
+			req, err := http.NewRequest("GET", remoteURL, nil)
+			if err != nil {
+				err := errors.Wrap(err, "Failed to create request")
+				fetchSpan.RecordError(err)
+				return nil, c.String(500, err.Error())
+			}
+			req.Header.Set("User-Agent", useragent)
+			resp, err = client.Do(req)
+			if err != nil {
+				err := errors.Wrap(err, "Failed to fetch image")
+				fetchSpan.RecordError(err)
+				return nil, c.String(500, err.Error())
+			}
+			defer resp.Body.Close()
+
+			contentType := resp.Header.Get("Content-Type")
+
+			if resp.StatusCode != 200 {
+				err := errors.New("fetch image response code is not 200")
+				fetchSpan.SetAttributes(attribute.Int("statusCode", resp.StatusCode))
+				fetchSpan.RecordError(err)
+				return nil, c.String(resp.StatusCode, err.Error())
+			}
+
+			// check if the image is valid
+			if !strings.HasPrefix(contentType, "image/") {
+				err := errors.New("Invalid image")
+				fetchSpan.RecordError(err)
+				return nil, c.String(400, err.Error())
+			}
+
+			fetchSpan.End()
+
+			// save the image to cache
+			err = os.MkdirAll(CachePath, 0755)
+			if err != nil {
+				err := errors.Wrap(err, "Failed to create cache directory")
+				span.RecordError(err)
+				return nil, c.String(500, err.Error())
+			}
+
+			dataCachePath := originalCachePath + ".data"
+			cache, err := os.Create(dataCachePath)
+			if err != nil {
+				err := errors.Wrap(err, "Failed to create cache file")
+				span.RecordError(err)
+				return nil, c.String(500, err.Error())
+			}
+			defer cache.Close()
+			io.Copy(cache, resp.Body)
+
+			headerCachePath := originalCachePath + ".header"
+			cache, err = os.Create(headerCachePath)
+			if err != nil {
+				err := errors.Wrap(err, "Failed to create cache file")
+				span.RecordError(err)
+				return nil, c.String(500, err.Error())
+			}
+			defer cache.Close()
+			resp.Write(cache)
+
+			return nil, nil
+		})
+
 		if err != nil {
-			err := errors.Wrap(err, "Failed to create request")
-			fetchSpan.RecordError(err)
-			return c.String(500, err.Error())
-		}
-		req.Header.Set("User-Agent", useragent)
-		resp, err = client.Do(req)
-		if err != nil {
-			err := errors.Wrap(err, "Failed to fetch image")
-			fetchSpan.RecordError(err)
-			return c.String(500, err.Error())
-		}
-		defer resp.Body.Close()
-
-		contentType := resp.Header.Get("Content-Type")
-
-		if resp.StatusCode != 200 {
-			err := errors.New("fetch image response code is not 200")
-			fetchSpan.SetAttributes(attribute.Int("statusCode", resp.StatusCode))
-			fetchSpan.RecordError(err)
-			return c.String(resp.StatusCode, err.Error())
+			return err
 		}
 
-		// check if the image is valid
-		if !strings.HasPrefix(contentType, "image/") {
-			err := errors.New("Invalid image")
-			fetchSpan.RecordError(err)
-			return c.String(400, err.Error())
+		if shared {
+			fmt.Println("  (requests shared)")
 		}
 
-		fetchSpan.End()
-
-		// save the image to cache
-		err = os.MkdirAll(CachePath, 0755)
-		if err != nil {
-			err := errors.Wrap(err, "Failed to create cache directory")
-			span.RecordError(err)
-			return c.String(500, err.Error())
-		}
-
-		dataCachePath := originalCachePath + ".data"
-		cache, err := os.Create(dataCachePath)
-		if err != nil {
-			err := errors.Wrap(err, "Failed to create cache file")
-			span.RecordError(err)
-			return c.String(500, err.Error())
-		}
-		defer cache.Close()
-		io.Copy(cache, resp.Body)
-
-		headerCachePath := originalCachePath + ".header"
-		cache, err = os.Create(headerCachePath)
-		if err != nil {
-			err := errors.Wrap(err, "Failed to create cache file")
-			span.RecordError(err)
-			return c.String(500, err.Error())
-		}
-		defer cache.Close()
-		resp.Write(cache)
 	} else {
 		fmt.Println("  Original Image Cache found")
 		var err error
