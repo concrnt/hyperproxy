@@ -14,7 +14,15 @@ func init_resize(memoryLimit int) {
 	}
 }
 
+var sem = make(chan struct{}, 1)
+
 func resize(input, output string, width, height int) int {
+
+	// limit to one resize operation at a time
+	sem <- struct{}{}
+	defer func() {
+		<-sem
+	}()
 
 	cInput := C.CString(input)
 	defer C.free(unsafe.Pointer(cInput))
