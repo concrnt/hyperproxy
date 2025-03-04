@@ -1,6 +1,8 @@
 FROM ubuntu:noble AS corebuilder
 WORKDIR /work
 
+ARG VERSION
+
 RUN apt update && apt install -y golang-go libmagick++-6.q16-dev
 
 COPY ./go.mod ./go.sum ./
