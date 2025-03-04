@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/totegamma/concurrent/core"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -19,6 +20,13 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+)
+
+var (
+	version      = "unknown"
+	buildMachine = "unknown"
+	buildTime    = "unknown"
+	goVersion    = "unknown"
 )
 
 var denyIps = []string{
@@ -79,6 +87,13 @@ func main() {
 	}))
 
 	init_resize(512 * 1024 * 1024)
+
+	e.GET("/cc-info", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, core.CCInfo{
+			Name:    "github.com/concrnt/hyperproxy",
+			Version: version,
+		})
+	})
 
 	e.GET("/image/*", ImageHandler)
 	e.GET("/summary", SummaryHandler)

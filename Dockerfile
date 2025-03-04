@@ -6,9 +6,13 @@ RUN apt update && apt install -y golang-go libmagick++-6.q16-dev
 COPY ./go.mod ./go.sum ./
 RUN go mod download && go mod verify
 COPY ./ ./
-RUN CGO_CPPFLAGS="$(pkg-config --cflags Magick++)" \
+RUN VERSION=${VERSION:-$(git describe)} \
+    BUILD_MACHINE=$(uname -srmo) \
+    BUILD_TIME=$(date) \
+    GO_VERSION=$(go version) \
+    CGO_CPPFLAGS="$(pkg-config --cflags Magick++)" \
     CGO_LDFLAGS="$(pkg-config --libs Magick++)" \
-    go build -o hyperproxy
+    go build -ldflags "-s -w -X main.version=${VERSION} -X \"main.buildMachine=${BUILD_MACHINE}\" -X \"main.buildTime=${BUILD_TIME}\" -X \"main.goVersion=${GO_VERSION}\"" -o hyperproxy
 
 FROM ubuntu:noble
 RUN apt-get update \
