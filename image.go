@@ -326,7 +326,7 @@ func ImageHandler(c echo.Context) error {
 		prefix = "apng:"
 	}
 
-	if (width == 0 && height == 0) || (resp.Header.Get("Content-Type") == "image/svg+xml") {
+	if resp.Header.Get("Content-Type") == "image/svg+xml" {
 		fmt.Println("  Returning original image")
 		c.Response().Header().Set("Cache-Control", "public, max-age=86400, s-maxage=86400, immutable")
 		c.Response().Header().Set("Content-Type", resp.Header.Get("Content-Type"))
