@@ -269,8 +269,7 @@ func ImageHandler(c echo.Context) error {
 				return nil, c.String(500, err.Error())
 			}
 
-			dataCachePath := originalCachePath + ".data"
-			cache, err := os.Create(dataCachePath)
+			cache, err := os.Create(originalCachePath + ".datawip")
 			if err != nil {
 				err := errors.Wrap(err, "Failed to create cache file")
 				span.RecordError(err)
@@ -279,8 +278,7 @@ func ImageHandler(c echo.Context) error {
 			defer cache.Close()
 			io.Copy(cache, resp.Body)
 
-			headerCachePath := originalCachePath + ".header"
-			cache, err = os.Create(headerCachePath)
+			cache, err = os.Create(originalCachePath + ".headwip")
 			if err != nil {
 				err := errors.Wrap(err, "Failed to create cache file")
 				span.RecordError(err)
@@ -288,6 +286,18 @@ func ImageHandler(c echo.Context) error {
 			}
 			defer cache.Close()
 			resp.Write(cache)
+
+			err = os.Rename(originalCachePath+".datawip", originalCachePath+".data")
+			if err != nil {
+				err := errors.Wrap(err, "Failed to rename cache file")
+				span.RecordError(err)
+			}
+
+			err = os.Rename(originalCachePath+".headwip", originalCachePath+".header")
+			if err != nil {
+				err := errors.Wrap(err, "Failed to rename cache file")
+				span.RecordError(err)
+			}
 
 			return nil, nil
 		})
@@ -323,7 +333,7 @@ func ImageHandler(c echo.Context) error {
 		return c.File(originalCachePath + ".data")
 	}
 
-	ok := resize(prefix+originalCachePath+".data", requestCachePath+".data", width, height)
+	ok := resize(prefix+originalCachePath+".data", requestCachePath+".datawip", width, height)
 	if ok != 0 {
 		fmt.Println("  [error] Resize Fail Returning original image")
 		err := errors.New("Failed to resize image")
@@ -331,6 +341,12 @@ func ImageHandler(c echo.Context) error {
 		c.Response().Header().Set("Cache-Control", "public, max-age=86400, s-maxage=86400, immutable")
 		c.Response().Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 		return c.File(originalCachePath + ".data")
+	}
+
+	err = os.Rename(requestCachePath+".datawip", requestCachePath+".data")
+	if err != nil { // maybe another request has already renamed it
+		err := errors.Wrap(err, "Failed to rename cache file")
+		span.RecordError(err)
 	}
 
 	fmt.Println("  Returning resized image")
