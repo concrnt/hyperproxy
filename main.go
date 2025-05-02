@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
+	"github.com/concrnt/concrnt/core"
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/totegamma/concurrent/core"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
