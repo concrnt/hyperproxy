@@ -18,7 +18,7 @@ RUN VERSION=${VERSION:-$(git describe)} \
 
 FROM ubuntu:noble
 RUN apt-get update \
- && apt-get install -y ca-certificates curl libmagickcore-6.q16-7t64 libmagick++-6.q16-9t64 libmagickwand-6.q16-7t64 ffmpeg --no-install-recommends \
+ && apt-get install -y ca-certificates curl libmagickcore-6.q16-7t64 libmagick++-6.q16-9t64 libmagickwand-6.q16-7t64 ffmpeg librsvg2-bin --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=corebuilder /work/hyperproxy /usr/local/bin
