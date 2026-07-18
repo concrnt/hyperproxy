@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	"github.com/concrnt/concrnt/core"
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -89,9 +88,13 @@ func main() {
 	init_resize(512 * 1024 * 1024)
 
 	e.GET("/cc-info", func(c echo.Context) error {
-		return c.JSON(http.StatusOK, core.CCInfo{
-			Name:    "github.com/concrnt/hyperproxy",
-			Version: version,
+		return c.JSON(http.StatusOK, echo.Map{
+			"name":    "github.com/concrnt/hyperproxy",
+			"version": version,
+			"endpoints": map[string]string{
+				"world.concrnt.hyperproxy.image":   "/image/{operator}/{+url}",
+				"world.concrnt.hyperproxy.summary": "/summary{?url}",
+			},
 		})
 	})
 
