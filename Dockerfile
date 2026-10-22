@@ -16,7 +16,7 @@ RUN VERSION=${VERSION:-$(git describe)} \
     CGO_LDFLAGS="$(pkg-config --libs Magick++)" \
     go build -ldflags "-s -w -X main.version=${VERSION} -X \"main.buildMachine=${BUILD_MACHINE}\" -X \"main.buildTime=${BUILD_TIME}\" -X \"main.goVersion=${GO_VERSION}\"" -o hyperproxy
 
-FROM ubuntu:noble
+FROM ubuntu:noble AS runtime
 RUN apt-get update \
  && apt-get install -y ca-certificates curl libmagickcore-6.q16-7t64 libmagick++-6.q16-9t64 libmagickwand-6.q16-7t64 ffmpeg librsvg2-bin --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
