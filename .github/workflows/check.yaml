@@ -1,0 +1,33 @@
+name: Check
+
+on:
+  push:
+    branches: [ 'main' ]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GOWORK: off
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install ImageMagick headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libmagick++-6.q16-dev
+          echo "CGO_CPPFLAGS=$(pkg-config --cflags Magick++)" >> "$GITHUB_ENV"
+          echo "CGO_LDFLAGS=$(pkg-config --libs Magick++)" >> "$GITHUB_ENV"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
