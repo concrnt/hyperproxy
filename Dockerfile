@@ -16,7 +16,9 @@ RUN VERSION=${VERSION:-$(git describe)} \
 
 FROM ubuntu:noble AS runtime
 RUN apt-get update \
- && apt-get install -y ca-certificates curl libvips42t64 ffmpeg --no-install-recommends \
+ && apt-get install -y ca-certificates curl libvips42t64 ffmpeg \
+      libheif-plugin-libde265 libheif-plugin-dav1d \
+      --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=corebuilder /work/hyperproxy /usr/local/bin
