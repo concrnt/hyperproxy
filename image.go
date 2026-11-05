@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	CachePath    = "/tmp/hyperproxy"
-	MaxCacheSize = 1024 * 1024 * 1024 // 1GB
+	CachePath     = "/tmp/hyperproxy"
+	MaxCacheSize  = 1024 * 1024 * 1024 // 1GB
+	MaxImageBytes = 32 * 1024 * 1024
 )
 
 var reCleanedURL = regexp.MustCompile(`^(https?):/+([^/])`)
@@ -192,13 +193,13 @@ func ImageHandler(c echo.Context) error {
 			if err != nil {
 				err := errors.Wrap(err, "Failed to parse URL")
 				span.RecordError(err)
-				return nil, c.String(400, err.Error())
+				return nil, echo.NewHTTPError(400, err.Error())
 			}
 
 			if parsedUrl.Scheme != "http" && parsedUrl.Scheme != "https" {
 				err := errors.New("Invalid URL scheme")
 				span.RecordError(err)
-				return nil, c.String(400, err.Error())
+				return nil, echo.NewHTTPError(400, err.Error())
 			}
 
 			_, fetchSpan := tracer.Start(ctx, "FetchImage")
@@ -207,18 +208,18 @@ func ImageHandler(c echo.Context) error {
 			if err != nil {
 				err := errors.Wrap(err, "Failed to create request")
 				fetchSpan.RecordError(err)
-				return nil, c.String(500, err.Error())
+				return nil, echo.NewHTTPError(500, err.Error())
 			}
 			req.Header.Set("User-Agent", useragent)
 			resp, err = client.Do(req)
 			if err != nil {
 				if errors.Is(err, errDeniedAddress) {
 					fetchSpan.RecordError(err)
-					return nil, c.String(403, errDeniedAddress.Error())
+					return nil, echo.NewHTTPError(403, errDeniedAddress.Error())
 				}
 				err := errors.Wrap(err, "Failed to fetch image")
 				fetchSpan.RecordError(err)
-				return nil, c.String(500, err.Error())
+				return nil, echo.NewHTTPError(500, err.Error())
 			}
 			defer resp.Body.Close()
 
@@ -228,14 +229,20 @@ func ImageHandler(c echo.Context) error {
 				err := errors.New("fetch image response code is not 200")
 				fetchSpan.SetAttributes(attribute.Int("statusCode", resp.StatusCode))
 				fetchSpan.RecordError(err)
-				return nil, c.String(resp.StatusCode, err.Error())
+				return nil, echo.NewHTTPError(resp.StatusCode, err.Error())
 			}
 
 			// check if the image is valid
 			if !strings.HasPrefix(contentType, "image/") {
 				err := errors.New("Invalid image")
 				fetchSpan.RecordError(err)
-				return nil, c.String(400, err.Error())
+				return nil, echo.NewHTTPError(400, err.Error())
+			}
+
+			if resp.ContentLength > MaxImageBytes {
+				err := errors.New("Image too large")
+				fetchSpan.RecordError(err)
+				return nil, echo.NewHTTPError(413, err.Error())
 			}
 
 			fetchSpan.End()
@@ -245,23 +252,34 @@ func ImageHandler(c echo.Context) error {
 			if err != nil {
 				err := errors.Wrap(err, "Failed to create cache directory")
 				span.RecordError(err)
-				return nil, c.String(500, err.Error())
+				return nil, echo.NewHTTPError(500, err.Error())
 			}
 
 			cache, err := os.Create(originalCachePath + ".datawip")
 			if err != nil {
 				err := errors.Wrap(err, "Failed to create cache file")
 				span.RecordError(err)
-				return nil, c.String(500, err.Error())
+				return nil, echo.NewHTTPError(500, err.Error())
 			}
-			defer cache.Close()
-			io.Copy(cache, resp.Body)
+			n, err := io.Copy(cache, io.LimitReader(resp.Body, MaxImageBytes+1))
+			cache.Close()
+			if err != nil || n > MaxImageBytes {
+				os.Remove(originalCachePath + ".datawip")
+				if err != nil {
+					err := errors.Wrap(err, "Failed to download image")
+					span.RecordError(err)
+					return nil, echo.NewHTTPError(502, err.Error())
+				}
+				err := errors.New("Image too large")
+				span.RecordError(err)
+				return nil, echo.NewHTTPError(413, err.Error())
+			}
 
 			cache, err = os.Create(originalCachePath + ".headwip")
 			if err != nil {
 				err := errors.Wrap(err, "Failed to create cache file")
 				span.RecordError(err)
-				return nil, c.String(500, err.Error())
+				return nil, echo.NewHTTPError(500, err.Error())
 			}
 			defer cache.Close()
 			resp.Write(cache)

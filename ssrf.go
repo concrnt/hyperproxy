@@ -56,13 +56,14 @@ func newSafeClient() *http.Client {
 	}
 	transport := &http.Transport{
 		// プロキシ経由だと検査対象がプロキシの IP になってしまうので使わない
-		Proxy:                 nil,
-		DialContext:           dialer.DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   5 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
+		Proxy:                  nil,
+		DialContext:            dialer.DialContext,
+		ForceAttemptHTTP2:      true,
+		MaxIdleConns:           100,
+		IdleConnTimeout:        90 * time.Second,
+		TLSHandshakeTimeout:    5 * time.Second,
+		ExpectContinueTimeout:  1 * time.Second,
+		MaxResponseHeaderBytes: 64 * 1024,
 	}
 	return &http.Client{
 		Timeout:   10 * time.Second,

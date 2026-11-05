@@ -53,6 +53,8 @@ func invalidURL(c echo.Context, host, key string) error {
 	return c.JSON(http.StatusOK, erroredSummary)
 }
 
+const MaxSummaryBytes = 2 * 1024 * 1024
+
 func SummaryHandler(c echo.Context) error {
 
 	// setup cors
@@ -92,6 +94,8 @@ func SummaryHandler(c echo.Context) error {
 		return invalidURL(c, targetHost, cacheKey)
 	}
 
+	defer resp.Body.Close()
+
 	charset := ""
 
 	favicon := ""
@@ -101,7 +105,8 @@ func SummaryHandler(c echo.Context) error {
 
 	contentType := resp.Header.Get("Content-Type")
 
-	z := html.NewTokenizer(resp.Body)
+	// meta は head にあるので先頭だけ読めば足りる
+	z := html.NewTokenizer(io.LimitReader(resp.Body, MaxSummaryBytes))
 	for {
 		tt := z.Next()
 		switch tt {
