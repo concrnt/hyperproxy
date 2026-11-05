@@ -1,7 +1,9 @@
 # hyperproxy
 
-build:
+build (requires libvips-dev; ffmpeg is needed at runtime for APNG):
 ```sh
-CGO_CPPFLAGS="$(pkg-config --cflags Magick++)" CGO_LDFLAGS="$(pkg-config --libs Magick++)" go build
+go build
 ```
 
+env:
+- `HYPERPROXY_RESIZE_CONCURRENCY`: number of images resized at the same time (default: GOMAXPROCS)

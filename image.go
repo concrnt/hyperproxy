@@ -328,11 +328,6 @@ func ImageHandler(c echo.Context) error {
 		}
 	}
 
-	prefix := ""
-	if strings.HasSuffix(remoteURL, ".apng") {
-		prefix = "apng:"
-	}
-
 	if subOp != "webp" && resp.Header.Get("Content-Type") == "image/svg+xml" {
 		fmt.Println("  Returning original image")
 		c.Response().Header().Set("Cache-Control", "public, max-age=86400, s-maxage=86400, immutable")
@@ -340,7 +335,8 @@ func ImageHandler(c echo.Context) error {
 		return c.File(originalCachePath + ".data")
 	}
 
-	ok := resize(prefix+originalCachePath+".data", requestCachePath+".datawip", width, height)
+	apng := strings.HasSuffix(remoteURL, ".apng")
+	ok := resizeImage(originalCachePath+".data", requestCachePath+".datawip", width, height, apng)
 	if ok != 0 {
 		fmt.Println("  [error] Resize Fail Returning original image")
 		err := errors.New("Failed to resize image")

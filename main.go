@@ -85,7 +85,7 @@ func main() {
 		},
 	}))
 
-	init_resize(512 * 1024 * 1024)
+	init_resize()
 
 	e.GET("/cc-info", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, echo.Map{

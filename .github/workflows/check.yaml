@@ -14,12 +14,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Install ImageMagick headers
+      - name: Install libvips and ffmpeg
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libmagick++-dev
-          echo "CGO_CPPFLAGS=$(pkg-config --cflags Magick++)" >> "$GITHUB_ENV"
-          echo "CGO_LDFLAGS=$(pkg-config --libs Magick++)" >> "$GITHUB_ENV"
+          sudo apt-get install -y --no-install-recommends libvips-dev ffmpeg
 
       - name: Setup Go
         uses: actions/setup-go@v7

@@ -1,16 +1,7 @@
 #ifndef RESIZE_H
 #define RESIZE_H
 
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-int init_resize(int memory_limit);
-int resize(char* input_filename, char* output_filename, int targetWidth, int targetHeight);
-
-#ifdef __cplusplus
-}
-#endif
+int init_resize(void);
+int resize(const char *input, const char *output, int width, int height);
 
 #endif // RESIZE_H
