@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -76,32 +75,11 @@ func SummaryHandler(c echo.Context) error {
 		return invalidURL(c, "Invalid URL", cacheKey)
 	}
 
-	targetHost := parsedUrl.Host
-	splitHost, _, err := net.SplitHostPort(parsedUrl.Host)
-	if err == nil {
-		targetHost = splitHost
+	if parsedUrl.Scheme != "http" && parsedUrl.Scheme != "https" {
+		return invalidURL(c, "Invalid URL", cacheKey)
 	}
 
-	targetIPs, err := net.LookupIP(targetHost)
-	if err != nil {
-		fmt.Println("Error looking up IP: ", err)
-		return invalidURL(c, parsedUrl.Host, cacheKey)
-	}
-
-	for _, denyIP := range denyIps {
-		_, ipnet, err := net.ParseCIDR(denyIP)
-		if err != nil {
-			fmt.Println("Error parsing CIDR: ", err)
-			continue
-		}
-
-		for _, targetIP := range targetIPs {
-			if ipnet.Contains(targetIP) {
-				fmt.Println("IP is in deny list: ", targetIP)
-				return invalidURL(c, targetHost, cacheKey)
-			}
-		}
-	}
+	targetHost := parsedUrl.Hostname()
 
 	req, err := http.NewRequest("GET", queryUrl, nil)
 	if err != nil {

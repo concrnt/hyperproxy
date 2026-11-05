@@ -28,20 +28,9 @@ var (
 	goVersion    = "unknown"
 )
 
-var denyIps = []string{
-	"127.0.0.0/8",
-	"10.0.0.0/8",
-	"172.16.0.0/12",
-	"192.168.0.0/16",
-	"::1/128",
-	"fc00::/7",
-}
-
 var (
 	mc     *memcache.Client
-	client = &http.Client{
-		Timeout: 10 * time.Second,
-	}
+	client = newSafeClient()
 	tracer = otel.Tracer("hyperproxy")
 )
 

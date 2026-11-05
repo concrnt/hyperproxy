@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -202,37 +201,6 @@ func ImageHandler(c echo.Context) error {
 				return nil, c.String(400, err.Error())
 			}
 
-			targetHost := parsedUrl.Host
-			splitHost, _, err := net.SplitHostPort(parsedUrl.Host)
-			if err == nil {
-				targetHost = splitHost
-			}
-
-			targetIPs, err := net.LookupIP(targetHost)
-			if err != nil {
-				err := errors.Wrap(err, "Failed to lookup IP")
-				span.SetAttributes(attribute.String("host", parsedUrl.Host))
-				span.RecordError(err)
-				return nil, c.String(400, err.Error())
-			}
-
-			for _, denyIP := range denyIps {
-				_, ipnet, err := net.ParseCIDR(denyIP)
-				if err != nil {
-					fmt.Println("Error parsing CIDR: ", err)
-					span.RecordError(err)
-					continue
-				}
-
-				for _, targetIP := range targetIPs {
-					if ipnet.Contains(targetIP) {
-						err := errors.New("IP is in deny list")
-						span.RecordError(err)
-						return nil, c.String(403, err.Error())
-					}
-				}
-			}
-
 			_, fetchSpan := tracer.Start(ctx, "FetchImage")
 
 			req, err := http.NewRequest("GET", remoteURL, nil)
@@ -244,6 +212,10 @@ func ImageHandler(c echo.Context) error {
 			req.Header.Set("User-Agent", useragent)
 			resp, err = client.Do(req)
 			if err != nil {
+				if errors.Is(err, errDeniedAddress) {
+					fetchSpan.RecordError(err)
+					return nil, c.String(403, errDeniedAddress.Error())
+				}
 				err := errors.Wrap(err, "Failed to fetch image")
 				fetchSpan.RecordError(err)
 				return nil, c.String(500, err.Error())
