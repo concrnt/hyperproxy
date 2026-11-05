@@ -24,7 +24,7 @@ import (
 const (
 	CachePath     = "/tmp/hyperproxy"
 	MaxCacheSize  = 1024 * 1024 * 1024 // 1GB
-	MaxImageBytes = 32 * 1024 * 1024
+	MaxImageBytes = 64 * 1024 * 1024
 )
 
 var reCleanedURL = regexp.MustCompile(`^(https?):/+([^/])`)
